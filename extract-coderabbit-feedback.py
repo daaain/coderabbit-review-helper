@@ -495,7 +495,7 @@ def extract_prompt_for_ai_agents(body: str) -> List[str]:
 # Removed unused functions - now using parse_review_sections instead
 
 
-def parse_review_sections(body: str) -> Dict[str, Any]:
+def parse_review_sections(body: str, debug: bool = False) -> Dict[str, Any]:
     """Parse different sections from CodeRabbit review body using HTML parsing."""
     sections = {}
 
@@ -511,6 +511,9 @@ def parse_review_sections(body: str) -> Dict[str, Any]:
     # Find sections by looking for <details> elements with specific summary text
     details_elements = soup.find_all("details")
 
+    if debug:
+        print(f"DEBUG: Found {len(details_elements)} <details> elements in review body", file=sys.stderr)
+
     for details in details_elements:
         summary = details.find("summary")
         if not summary:
@@ -520,6 +523,9 @@ def parse_review_sections(body: str) -> Dict[str, Any]:
 
         # Check for outside diff range comments (avoid emoji dependency)
         if "Outside diff range comments" in summary_text:
+            if debug:
+                print(f"DEBUG: Found 'Outside diff range comments' section", file=sys.stderr)
+
             # Extract count from summary text
             count_match = re.search(r"\((\d+)\)", summary_text)
             if count_match:
@@ -532,6 +538,12 @@ def parse_review_sections(body: str) -> Dict[str, Any]:
                         "count": count,
                         "content": content,
                     }
+                    if debug:
+                        print(f"DEBUG: Extracted {count} outside diff comments, content length: {len(content)}", file=sys.stderr)
+                elif debug:
+                    print(f"DEBUG: No blockquote found in outside diff section", file=sys.stderr)
+            elif debug:
+                print(f"DEBUG: No count match found in summary: {summary_text}", file=sys.stderr)
 
         # Check for nitpick comments or duplicate comments
         elif "Nitpick comments" in summary_text or "Duplicate comments" in summary_text:
@@ -584,6 +596,10 @@ def parse_file_level_comments(
     """Parse individual file-level comments from section content, avoiding HTML corruption."""
     comments = []
 
+    if debug:
+        print(f"DEBUG: parse_file_level_comments received content length: {len(content)}", file=sys.stderr)
+        print(f"DEBUG: Content preview: {content[:200]}...", file=sys.stderr)
+
     # Use regex to find file sections instead of BeautifulSoup to avoid HTML corruption
     # Pattern: <summary>filename (count)</summary><blockquote>content</blockquote></details>
     file_pattern = r"<summary>([^<]+?)\s*\((\d+)\)</summary><blockquote>(.*?)</blockquote></details>"
@@ -602,14 +618,21 @@ def parse_file_level_comments(
             3
         )  # Raw blockquote content, not parsed by BeautifulSoup
 
+        # HTML unescape the content (e.g., &gt; -> >, &lt; -> <)
+        file_content = html.unescape(file_content)
+
+        # Remove blockquote markers (> at start of lines)
+        file_content = re.sub(r'^>\s*', '', file_content, flags=re.MULTILINE)
+
         # Now parse line comments within this file content
         # Find line comment patterns: `16-24`: **Title**
-        line_pattern = r"`([^`]+)`:\s*\*\*(.*?)\*\*\s*\n\n(.*?)(?=\n\n`[^`]+`:\s*\*\*|\n\n---|\n\n</blockquote>|$)"
+        # Allow for either one or two newlines after the title
+        line_pattern = r"`([^`]+)`:\s*\*\*(.*?)\*\*\s*\n+(.*?)(?=\n+`[^`]+`:\s*\*\*|\n+---|\n+</blockquote>|\n+Also applies to:|$)"
         line_matches = list(re.finditer(line_pattern, file_content, re.DOTALL))
 
         if debug:
             print(
-                f"DEBUG: File {file_path} has {len(line_matches)} line comments",
+                f"DEBUG: File {file_path} has {len(line_matches)} line comments (expected {comment_count})",
                 file=sys.stderr,
             )
 
@@ -697,19 +720,28 @@ def group_comments_by_file(
                     file=sys.stderr,
                 )
 
-        sections = parse_review_sections(review_body)
+        sections = parse_review_sections(review_body, debug)
 
         # Add outside diff comments
         if "outside_diff_comments" in sections:
+            if debug:
+                print(
+                    f"DEBUG: Processing {sections['outside_diff_comments']['count']} outside diff comments",
+                    file=sys.stderr,
+                )
             outside_comments = parse_file_level_comments(
                 sections["outside_diff_comments"]["content"], debug
             )
+            if debug:
+                print(f"DEBUG: Parsed {len(outside_comments)} outside diff comments", file=sys.stderr)
             for comment in outside_comments:
                 file_path = comment["file"]
                 if file_path not in file_groups:
                     file_groups[file_path] = []
                 comment["source"] = "outside_diff"
                 file_groups[file_path].append(comment)
+        elif debug:
+            print("DEBUG: No 'outside_diff_comments' key found in sections", file=sys.stderr)
 
         # Add nitpick comments
         if "nitpick_comments" in sections:
