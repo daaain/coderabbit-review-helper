@@ -54,6 +54,29 @@ def parse_pr_input(input_str: str) -> str:
     )
 
 
+def get_current_branch_pr() -> Optional[str]:
+    """Get the PR URL for the current branch using gh CLI.
+
+    Returns None if no PR is found for the current branch.
+    """
+    try:
+        # GH_PAGER= prefix disables pager for JSON output
+        result = subprocess.run(
+            ["gh", "pr", "view", "--json", "url"],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        data = json.loads(result.stdout)
+        return data.get("url")
+    except subprocess.CalledProcessError:
+        # No PR found for current branch
+        return None
+    except json.JSONDecodeError:
+        # Error parsing JSON response
+        return None
+
+
 def extract_pr_info_from_url(pr_url: str) -> Tuple[str, str, int]:
     """Extract owner, repo, and PR number from GitHub PR URL."""
     # Parse URL like https://github.com/owner/repo/pull/123
@@ -512,7 +535,10 @@ def parse_review_sections(body: str, debug: bool = False) -> Dict[str, Any]:
     details_elements = soup.find_all("details")
 
     if debug:
-        print(f"DEBUG: Found {len(details_elements)} <details> elements in review body", file=sys.stderr)
+        print(
+            f"DEBUG: Found {len(details_elements)} <details> elements in review body",
+            file=sys.stderr,
+        )
 
     for details in details_elements:
         summary = details.find("summary")
@@ -524,7 +550,10 @@ def parse_review_sections(body: str, debug: bool = False) -> Dict[str, Any]:
         # Check for outside diff range comments (avoid emoji dependency)
         if "Outside diff range comments" in summary_text:
             if debug:
-                print(f"DEBUG: Found 'Outside diff range comments' section", file=sys.stderr)
+                print(
+                    f"DEBUG: Found 'Outside diff range comments' section",
+                    file=sys.stderr,
+                )
 
             # Extract count from summary text
             count_match = re.search(r"\((\d+)\)", summary_text)
@@ -539,11 +568,20 @@ def parse_review_sections(body: str, debug: bool = False) -> Dict[str, Any]:
                         "content": content,
                     }
                     if debug:
-                        print(f"DEBUG: Extracted {count} outside diff comments, content length: {len(content)}", file=sys.stderr)
+                        print(
+                            f"DEBUG: Extracted {count} outside diff comments, content length: {len(content)}",
+                            file=sys.stderr,
+                        )
                 elif debug:
-                    print(f"DEBUG: No blockquote found in outside diff section", file=sys.stderr)
+                    print(
+                        f"DEBUG: No blockquote found in outside diff section",
+                        file=sys.stderr,
+                    )
             elif debug:
-                print(f"DEBUG: No count match found in summary: {summary_text}", file=sys.stderr)
+                print(
+                    f"DEBUG: No count match found in summary: {summary_text}",
+                    file=sys.stderr,
+                )
 
         # Check for nitpick comments or duplicate comments
         elif "Nitpick comments" in summary_text or "Duplicate comments" in summary_text:
@@ -597,7 +635,10 @@ def parse_file_level_comments(
     comments = []
 
     if debug:
-        print(f"DEBUG: parse_file_level_comments received content length: {len(content)}", file=sys.stderr)
+        print(
+            f"DEBUG: parse_file_level_comments received content length: {len(content)}",
+            file=sys.stderr,
+        )
         print(f"DEBUG: Content preview: {content[:200]}...", file=sys.stderr)
 
     # Use regex to find file sections instead of BeautifulSoup to avoid HTML corruption
@@ -622,7 +663,7 @@ def parse_file_level_comments(
         file_content = html.unescape(file_content)
 
         # Remove blockquote markers (> at start of lines)
-        file_content = re.sub(r'^>\s*', '', file_content, flags=re.MULTILINE)
+        file_content = re.sub(r"^>\s*", "", file_content, flags=re.MULTILINE)
 
         # Now parse line comments within this file content
         # Find line comment patterns: `16-24`: **Title**
@@ -699,7 +740,7 @@ def parse_file_level_comments(
 
 def group_comments_by_file(
     coderabbit_reviews: List[Dict[str, Any]],
-    inline_comments: List[Dict[str, Any]] = None,
+    inline_comments: List[Dict[str, Any]] | None = None,
     debug: bool = False,
     include_resolved: bool = True,
 ) -> Dict[str, List[Dict[str, Any]]]:
@@ -733,7 +774,10 @@ def group_comments_by_file(
                 sections["outside_diff_comments"]["content"], debug
             )
             if debug:
-                print(f"DEBUG: Parsed {len(outside_comments)} outside diff comments", file=sys.stderr)
+                print(
+                    f"DEBUG: Parsed {len(outside_comments)} outside diff comments",
+                    file=sys.stderr,
+                )
             for comment in outside_comments:
                 file_path = comment["file"]
                 if file_path not in file_groups:
@@ -741,7 +785,10 @@ def group_comments_by_file(
                 comment["source"] = "outside_diff"
                 file_groups[file_path].append(comment)
         elif debug:
-            print("DEBUG: No 'outside_diff_comments' key found in sections", file=sys.stderr)
+            print(
+                "DEBUG: No 'outside_diff_comments' key found in sections",
+                file=sys.stderr,
+            )
 
         # Add nitpick comments
         if "nitpick_comments" in sections:
@@ -842,7 +889,7 @@ def group_comments_by_file(
 
 def format_for_llm(
     coderabbit_reviews: List[Dict[str, Any]],
-    inline_comments: List[Dict[str, Any]] = None,
+    inline_comments: List[Dict[str, Any]] | None = None,
     debug: bool = False,
     preamble: Optional[str] = None,
     include_resolved: bool = True,
@@ -852,13 +899,14 @@ def format_for_llm(
 
     # Add custom preamble if provided
     if preamble:
+        output.append("")
         output.append(preamble)
         output.append("")
-        output.append("=" * 60)
+        output.append("=" * 10)
         output.append("")
 
-    output.append("# CodeRabbit Review Feedback")
-    output.append("=" * 40)
+    output.append("# Review Feedback")
+    output.append("=" * 5)
     output.append("")
 
     # Group all comments by file
@@ -968,7 +1016,7 @@ def format_for_llm(
                 output.append("-" * 30)
                 output.append("")
 
-        output.append("=" * 60)
+        output.append("=" * 10)
         output.append("")
 
     return "\n".join(output)
@@ -988,6 +1036,10 @@ to automatically apply code improvements, refactoring suggestions, and fixes.
         """.strip(),
         epilog="""
 EXAMPLES:
+  # Auto-detect PR for current branch
+  %(prog)s
+
+  # Explicit PR specification
   %(prog)s https://github.com/owner/repo/pull/123
   %(prog)s owner/repo/123
   %(prog)s obra/lace/278 --all-reviews
@@ -1007,8 +1059,9 @@ HOW IT WORKS:
   5. Outputs clean text ready for LLM consumption
 
 DEFAULT BEHAVIOR:
-  Processes only the LATEST CodeRabbit review to avoid overwhelming output.
-  Use --all-reviews for PRs with multiple review iterations if needed.
+  • Auto-detects PR for current branch when no PR argument provided
+  • Processes only the LATEST CodeRabbit review to avoid overwhelming output
+  • Use --all-reviews for PRs with multiple review iterations if needed
 
 REQUIREMENTS:
   • GitHub CLI (gh) installed and authenticated
@@ -1023,7 +1076,8 @@ CONFIGURATION:
 
     parser.add_argument(
         "pr_input",
-        help='GitHub PR URL or owner/repo/number format (e.g., "owner/repo/123")',
+        nargs="?",
+        help='GitHub PR URL or owner/repo/number format (e.g., "owner/repo/123"). If omitted, uses the PR for the current branch.',
     )
     parser.add_argument(
         "--include-resolved",
@@ -1049,31 +1103,36 @@ CONFIGURATION:
         "--version", action="version", version=f"%(prog)s {__version__}"
     )
 
-    # Custom handling for no arguments to show helpful info
-    if len(sys.argv) == 1:
-        print("🤖 CodeRabbit Review Extractor")
-        print("=" * 40)
-        print()
-        print("WHAT THIS DOES:")
-        print(
-            "  Converts CodeRabbit GitHub PR reviews into clean text for AI coding agents"
-        )
-        print("  (Claude, ChatGPT, etc.) to automatically apply code suggestions.")
-        print()
-        print("QUICK START:")
-        print(
-            "  python3 extract-coderabbit-feedback.py https://github.com/owner/repo/pull/123"
-        )
-        print("  python3 extract-coderabbit-feedback.py owner/repo/123")
-        print()
-        print("For full help and options, run:")
-        print("  python3 extract-coderabbit-feedback.py --help")
-        sys.exit(1)
-
     args = parser.parse_args()
 
     try:
-        pr_url = parse_pr_input(args.pr_input)
+        # If no PR input provided, try to get PR for current branch
+        if args.pr_input is None:
+            pr_url = get_current_branch_pr()
+            if pr_url is None:
+                print("❌ No PR found for the current branch.", file=sys.stderr)
+                print(file=sys.stderr)
+                print("To use this tool, either:", file=sys.stderr)
+                print(
+                    "  1. Run it from a branch that has an associated PR, or",
+                    file=sys.stderr,
+                )
+                print("  2. Provide a PR explicitly:", file=sys.stderr)
+                print(file=sys.stderr)
+                print(
+                    "     coderabbit-extract https://github.com/owner/repo/pull/123",
+                    file=sys.stderr,
+                )
+                print("     coderabbit-extract owner/repo/123", file=sys.stderr)
+                print(file=sys.stderr)
+                print("For full help and options, run:", file=sys.stderr)
+                print("  coderabbit-extract --help", file=sys.stderr)
+                sys.exit(1)
+            # Assert for type checker - we've already checked pr_url is not None
+            assert pr_url is not None
+            print(f"📌 Using PR for current branch: {pr_url}", file=sys.stderr)
+        else:
+            pr_url = parse_pr_input(args.pr_input)
 
         # Load custom preamble from dotfile
         preamble = load_preamble_config()
@@ -1256,11 +1315,11 @@ CONFIGURATION:
         # Show processing info
         if len(coderabbit_reviews) > 1:
             print(
-                f"Processing {len(coderabbit_reviews)} CodeRabbit reviews...",
+                f"Processing {len(coderabbit_reviews)} reviews...",
                 file=sys.stderr,
             )
         elif len(coderabbit_reviews) == 1:
-            print("Processing latest CodeRabbit review...", file=sys.stderr)
+            print("Processing latest review...", file=sys.stderr)
 
         if coderabbit_inline_comments:
             print(

@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "coderabbit-review-extractor"
@@ -33,10 +33,10 @@ Repository = "https://github.com/obra/coderabbit-review-helper"
 Issues = "https://github.com/obra/coderabbit-review-helper/issues"
 
 [project.scripts]
-coderabbit-extract = "coderabbit_review_extractor:main"
+coderabbit-extract = "extract_coderabbit_feedback:main"
 
-[tool.setuptools]
-py-modules = ["extract-coderabbit-feedback"]
+[tool.hatch.build.targets.wheel.force-include]
+"extract-coderabbit-feedback.py" = "extract_coderabbit_feedback.py"
 
 [dependency-groups]
 dev = ["ruff>=0.14.4"]
